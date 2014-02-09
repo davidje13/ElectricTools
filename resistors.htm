@@ -1,0 +1,295 @@
+<html>
+<head>
+<title>Resistor Spacing</title>
+<style type="text/css">
+body{
+	background:#EEEEEE;
+}
+section{
+	margin:10px;
+	padding:10px;
+	background:#FFFFFF;
+	border-radius:5px;
+	box-shadow:0 2px 5px rgba(0,0,0,0.2);
+}
+h2:first-child{
+	margin-top:0;
+}
+#result{
+}
+#graph{
+	height:100px;
+	position:relative;
+}
+.bar{
+	position:absolute;
+	top:10px;
+	width:1px;
+	bottom:10px;
+	background:#DDDDDD;
+}
+.bar1{
+	background:#000000;
+}
+.bar2{
+	background:#0000FF;
+}
+.bar3{
+	background:#00FF00;
+}
+.bar4{
+	background:#FF0000;
+}
+.bar5{
+	background:#FF00FF;
+}
+</style>
+<script type="text/javascript">
+window.onload = function( ) {
+	'use strict';
+	
+	function get( id ) {
+		return document.getElementById( id );
+	}
+	
+	function sortNum( a, b ) {
+		return a - b;
+	}
+	
+	function sortStatesVoltage( a, b ) {
+		return a.voltageNorm - b.voltageNorm;
+	}
+	
+	var
+	available = get( 'available' ),
+	result = get( 'result' ),
+	graph = get( 'graph' ),
+	count = get( 'count' ),
+	sim = get( 'sim' ),
+	volts = get( 'volts' ),
+	low = get( 'low' ),
+	add = get( 'add' ),
+	go = get( 'go' ),
+	av = [];
+	
+	function addRes( v ) {
+		var o = document.createElement( 'input' );
+		if( v === +v ) {
+			o.setAttribute( 'value', v );
+		}
+		available.appendChild( o );
+		av.push( o );
+	}
+	
+	function getAvailableResistors( ) {
+		var resistors = [];
+		for( var i = 0; i < av.length; ++ i ) {
+			var v = +av[i].value;
+			for( var j = 0; j < resistors.length; ++ j ) {
+				if( resistors[j] === v ) {
+					v = -1;
+					break;
+				}
+			}
+			if( v > 0 ) {
+				resistors.push( v );
+			}
+		}
+		return resistors;
+	}
+	
+	function minResistance( R0, buttons ) {
+		var inv = 0;
+		for( var i = 0; i < buttons.length; ++ i ) {
+			inv += 1.0 / buttons[i];
+		}
+		return R0 + 1.0 / inv;
+	}
+	
+	function addStates( R0, btns, n, inv, m, c, lbl, flag, states ) {
+		for( var i = n; i < btns.length; ++ i ) {
+			var
+			inv2 = inv + 1.0 / btns[i],
+			lbl2 = ((lbl === '') ? '' : (lbl + ', ')) + (i + 1),
+			flag2 = flag | (1 << i),
+			Rb = (inv === 0) ? btns[i] : (1.0 / inv2);
+			states.push( {
+				count: c,
+				resistance: Rb,
+				voltageNorm: R0 / (Rb + R0),
+				label: lbl2,
+				flag: flag2
+			} );
+			if( c < m ) {
+				addStates( R0, btns, i + 1, inv2, m, c + 1, lbl2, flag2, states );
+			}
+		}
+	}
+	
+	function calculateStates( R0, btns, m ) {
+		var states = [];
+		
+		if( m <= 0 ) {
+			return states;
+		}
+		
+		addStates( R0, btns, 0, 0, m, 1, '', 0, states );
+		
+		return states.sort( sortStatesVoltage );
+	}
+	
+	function minVoltageDiff( states ) {
+		if( states.length < 2 ) {
+			return Number.POSITIVE_INFINITY;
+		}
+		var m = states[1].voltageNorm - states[0].voltageNorm;
+		for( var i = 2; i < states.length; ++ i ) {
+			m = Math.min( m, states[i].voltageNorm - states[i-1].voltageNorm );
+		}
+		return m;
+	}
+	
+	function iterate( R0, l, resistors, i, s, n, m, buttons, best ) {
+		if( i < n ) {
+			for( var j = s; j < resistors.length; ++ j ) {
+				buttons[i] = resistors[j];
+				iterate( R0, l, resistors, i + 1, j + 1, n, m, buttons, best );
+			}
+			return;
+		}
+		var minR = minResistance( R0, buttons );
+		if( minR < l ) {
+			return;
+		}
+		var states = calculateStates( R0, buttons, m );
+		var minDiff = minVoltageDiff( states );
+		if( minDiff > best.minDiff ) {
+			best.minDiff = minDiff;
+			best.R0 = R0;
+			best.minR = minR;
+			var j;
+			for( j = 0; j < n; ++ j ) {
+				best.buttons[j] = buttons[j];
+			}
+			for( j = 0; j < states.length; ++ j ) {
+				best.states[j] = states[j];
+			}
+		}
+	}
+	
+	function drawState( state ) {
+		var o = document.createElement( 'div' );
+		o.className = 'bar bar' + state.count;
+		o.style.left = (state.voltageNorm * 100) + '%';
+		graph.appendChild( o );
+	}
+	
+	function drawStates( states ) {
+		for( var i = 0; i < states.length; ++ i ) {
+			drawState( states[i] );
+		}
+	}
+	
+	function recalculate( ) {
+		var
+		resistors = getAvailableResistors( ),
+		n = count.value|0,
+		m = sim.value|0,
+		Vt = +volts.value,
+		l = +low.value;
+		
+		graph.innerHTML = '';
+		
+		if( resistors.length <= 0 || n < 2 || resistors.length < n || m < 1 || m > n || Vt <= 0 || l < 0 ) {
+			result.innerHTML = 'Invalid setup.';
+			return;
+		}
+		
+		result.innerHTML = 'Calculating&hellip;';
+		
+		setTimeout( function( ) {
+			resistors = resistors.sort( sortNum );
+			
+			var best = {
+				minDiff: -1,
+				minR: 0,
+				R0: -1,
+				buttons: [],
+				states: []
+			};
+			
+			for( var i = 0; i < resistors.length; ++ i ) {
+				iterate( resistors[i], l, resistors, 0, 0, n, m, [], best );
+			}
+			
+			if( best.minDiff < 0 ) {
+				result.innerHTML = 'No valid solutions.';
+			} else {
+				var
+				res = '<div>Base: ' + best.R0 + '&Omega;</div>',
+				code = '',
+				i;
+				for( i = 0; i < best.buttons.length; ++ i ) {
+					res += '<div>Button ' + (i + 1) + ': ' + best.buttons[i] + '&Omega;</div>';
+				}
+				var lastBound = Math.round( best.states[0].voltageNorm * 512 );
+				res += '<div>State off: V=0 (0 &lt;= x &lt; ' + lastBound + ')</div>';
+				code += 'unsigned int buttonsPressed( const int pin ) {\n  const int x = analogRead( pin );\n  if( x < ' + lastBound + ' ) {\n    return 0x0u;\n';
+				for( i = 0; i < best.states.length; ++ i ) {
+					var
+					bound = 1024;
+					if( i + 1 < best.states.length ) {
+						bound = Math.round( (best.states[i].voltageNorm + best.states[i+1].voltageNorm) * 512 );
+					}
+					res += '<div>State ' + best.states[i].label + ': V=' + (best.states[i].voltageNorm * Vt).toFixed( 3 ) + ' (' + lastBound + ' &lt;= x &lt; ' + bound + ')</div>';
+					if( i + 1 < best.states.length ) {
+						code += '  } else if( x < ' + bound + ' ) {\n    return 0x' + best.states[i].flag.toString( 16 ).toUpperCase( ) + 'u;\n';
+					} else {
+						code += '  } else {\n    return 0x' + best.states[i].flag.toString( 16 ).toUpperCase( ) + 'u;\n';
+					}
+					lastBound = bound;
+				}
+				code += '  }\n}';
+				result.innerHTML = 'Optimal solution (min dV=' + (best.minDiff * Vt).toFixed( 5 ) + ' = ' + Math.floor( best.minDiff * 1024 ).toFixed( 0 ) + '/1024, min resistance=' + best.minR.toFixed( 0 ) + '&Omega; = ' + (Vt * 1000 / best.minR).toFixed( 2 ) + 'mA)' + res + '<pre id=code>' + code + '</pre>todo: binary search code';
+				drawStates( best.states );
+			}
+		}, 0 );
+	}
+	
+	add.onclick = addRes;
+	
+	go.onclick = recalculate;
+	
+	addRes( 220 );
+	addRes( 560 );
+	addRes( 1000 );
+	addRes( 2000 );
+	addRes( 4700 );
+	addRes( 10000 );
+	addRes( 20000 );
+	addRes( 1000000 );
+	addRes( 2000000 );
+	addRes( 10000000 );
+	addRes( );
+	
+	recalculate( );
+}
+</script>
+</head>
+<body>
+<h1>Resistor Spacing</h1>
+<section id=opts>
+<h2>Situation</h2>
+<label for=count>Number of buttons</label>: <input id=count type=text value=4 /><br />
+<label for=sim>Simultaneous presses</label>: <input id=sim type=text value=4 /><br />
+<label for=volts>Voltage</label>: <input id=volts type=text value=5 />V<br />
+<label for=volts>Minimum resistance</label>: <input id=low type=text value=2000 />&Omega;<br />
+<h2>Available Resistors (&Omega;)</h2>
+<div id=available></div>
+<button id=add>Add Resistor</button>
+<button id=go>Recalculate</button>
+</section>
+<section id=result></section>
+<section id=graph></section>
+</body>
+</html>
